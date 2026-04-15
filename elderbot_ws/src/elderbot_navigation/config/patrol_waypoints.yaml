@@ -1,0 +1,43 @@
+patrol_node:
+  ros__parameters:
+    # --- 自动回充配置 ---
+    enable_auto_docking: true
+    battery_threshold: 0.20   # 低于 20% 时触发回充
+    battery_resume: 0.90      # 充到 90% 后恢复巡逻
+    
+    # 充电桩正前方的“预备点”坐标
+    dock_pre_x: -0.837
+    dock_pre_y: 1.21
+    dock_pre_yaw: 0.215       # 暂定为你截图里的朝向，若背对桩则保持，若正对桩则调转180度
+
+
+    # 到达每个巡逻点后的停留时间(秒)，设置为 0 即不等待
+    wait_duration: 0.0
+
+    # 单次导航超时(秒)，超时后跳过当前点继续下一个
+    navigation_timeout: 120.0
+
+    # 巡逻点列表 (坐标基于 map 坐标系)
+    # 请根据实际地图修改坐标！可在 RViz 中使用 "Publish Point" 获取坐标
+    # yaw 单位为弧度: 0=朝右, 1.57=朝上, 3.14=朝左, -1.57=朝下
+    waypoint_names: ["point_a", "point_b","point_c","point_d"]
+
+    point_a:
+      x: -10.2
+      y: 8.84
+      yaw: 0.0
+
+    point_b:
+      x: -8.8
+      y: 11.6  # (这是一个猜测的值，因为你的两张截图都是在差不多同一个位置)
+      yaw: 0.0
+
+    point_c:
+      x: -1.69
+      y: 4.39
+      yaw: 0.0
+
+    point_d:
+      x: -0.55
+      y: 1.06
+      yaw: 0.0

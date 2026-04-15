@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Elderbot workspace
+/elderbot_ws/install/
+/elderbot_ws/log/
+/elderbot_ws/src/OrbbecSDK_ROS2-2-main.zip
+/elderbot_ws/src/yahboomcar_mediapipe/yahboomcar_mediapipe/file/shape_predictor_68_face_landmarks.dat
+/elderbot_ws/src/yahboomcar_visual/simple_qrcode/Log/
+!elderbot_ws/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/
+!elderbot_ws/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/**
+!elderbot_ws/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/**/*.so
