@@ -215,3 +215,6 @@ __marimo__/
 !elderbot_ws/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/
 !elderbot_ws/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/**
 !elderbot_ws/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/**/*.so
+
+# Codex local config
+/.codex
