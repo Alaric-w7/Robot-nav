@@ -1,0 +1,28 @@
+/**:
+  ros__parameters:
+    port: /dev/ttyUSB0
+    baudrate: 9600
+    bytesize: 8
+    parity: "N"
+    stopbits: 1
+    timeout: 0.2
+    rate: 10.0
+    send_trigger: true
+    trigger_hex: FF
+    frame_timeout: 0.5
+    log_raw_frames: false
+    min_range: 0.02
+    max_range: 4.5
+    field_of_view: 0.26
+    frame_id_1: ultrasonic_1
+    frame_id_2: ultrasonic_2
+    frame_id_3: ultrasonic_3
+    frame_id_4: ultrasonic_4
+    scan_frame: base_link
+    topic_1: /ultrasonic_1
+    topic_2: /ultrasonic_2
+    topic_3: /ultrasonic_3
+    topic_4: /ultrasonic_4
+    scan_topic: /scan_ultrasonic
+    publish_scan: true
+    angles: [0.0, 1.5708, 3.14159, -1.5708]

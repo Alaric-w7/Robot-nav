@@ -12,9 +12,11 @@ import time
 import threading
 import subprocess
 import os
+from pathlib import Path
 import yaml
 
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from rclpy.executors import SingleThreadedExecutor
 from geometry_msgs.msg import PoseStamped, Quaternion, Twist
@@ -51,6 +53,24 @@ def lifecycle_set_state(node_name, transition):
         pass
 
 
+def default_dock_pose_file():
+    override = os.environ.get('ELDERBOT_DOCK_POSE_FILE')
+    if override:
+        return os.path.expanduser(override)
+
+    try:
+        share_dir = Path(get_package_share_directory('elderbot_navigation'))
+        for parent in share_dir.parents:
+            candidate = (
+                parent / 'src' / 'elderbot_navigation' / 'config' / 'dock_pose.yaml'
+            )
+            if candidate.exists() or candidate.parent.is_dir():
+                return str(candidate)
+        return str(share_dir / 'config' / 'dock_pose.yaml')
+    except Exception:
+        return os.path.expanduser('~/.ros/elderbot_navigation/dock_pose.yaml')
+
+
 class AutoDockNode(Node):
     def __init__(self):
         super().__init__('auto_dock_node')
@@ -64,6 +84,7 @@ class AutoDockNode(Node):
         self.declare_parameter('default_charger_x', -0.77)
         self.declare_parameter('default_charger_y', 1.17)
         self.declare_parameter('default_charger_yaw', 2.36)
+        self.declare_parameter('dock_pose_file', default_dock_pose_file())
 
         self.battery_threshold = self.get_parameter('battery_threshold').value
         self.backup_speed = self.get_parameter('backup_speed').value
@@ -75,9 +96,8 @@ class AutoDockNode(Node):
         self.default_charger_yaw = self.get_parameter(
             'default_charger_yaw').value
 
-        # dock_pose.yaml 路径
         self.dock_pose_file = os.path.expanduser(
-            '~/elderbot_ws/src/elderbot_navigation/config/dock_pose.yaml')
+            self.get_parameter('dock_pose_file').value)
 
         # ==================== 状态 ====================
         self.current_battery = 1.0
@@ -85,6 +105,8 @@ class AutoDockNode(Node):
         self.is_charging = False
         self.was_charging = False
         self.is_docking = False
+        self.have_valid_battery_state = False
+        self.nav2_ready = False
         self.odom_x = 0.0
         self.odom_y = 0.0
         self.odom_yaw = 0.0
@@ -131,6 +153,14 @@ class AutoDockNode(Node):
         self.current_battery = val
         self.current_current = msg.current
         self.is_charging = msg.current > 0.1
+        if ((msg.present and msg.voltage > 1.0)
+                or abs(msg.current) > 0.1
+                or val > 0.0):
+            if not self.have_valid_battery_state:
+                self.get_logger().info(
+                    f'已收到有效电池数据: V={msg.voltage:.1f}V, '
+                    f'I={msg.current:.2f}A, SOC={val*100:.1f}%')
+            self.have_valid_battery_state = True
 
     def odom_callback(self, msg: Odometry):
         self.odom_x = msg.pose.pose.position.x
@@ -229,6 +259,24 @@ class AutoDockNode(Node):
         lifecycle_set_state('controller_server', 'activate')
         time.sleep(0.5)
         self.get_logger().info('   [Nav2] 已恢复 ✓')
+
+    def wait_for_nav2_ready(self, navigator):
+        if self.nav2_ready:
+            return True
+
+        self.get_logger().info('-> 等待 Nav2 与 AMCL 就绪...')
+        try:
+            try:
+                navigator.waitUntilNav2Active(localizer='amcl')
+            except TypeError:
+                navigator.waitUntilNav2Active()
+        except Exception as e:
+            self.get_logger().error(f'等待 Nav2 就绪失败: {e}')
+            return False
+
+        self.nav2_ready = True
+        self.get_logger().info('-> Nav2 已就绪 ✓')
+        return True
 
     # ==================== 运动控制 ====================
 
@@ -330,6 +378,15 @@ class AutoDockNode(Node):
         self.get_logger().warn(
             f'!!! 低电量 ({self.current_battery*100:.1f}%) → 启动回充 !!!')
 
+        if not self.have_valid_battery_state:
+            self.get_logger().warn('尚未收到有效电池数据，取消本次自动回充。')
+            self.is_docking = False
+            return
+
+        if not self.wait_for_nav2_ready(navigator):
+            self.is_docking = False
+            return
+
         # 读取 dock_pose
         dock = self.load_dock_pose()
         if dock is None:
@@ -392,6 +449,9 @@ class AutoDockNode(Node):
 
         # 等待电池数据到达
         time.sleep(3.0)
+        if not self.have_valid_battery_state:
+            self.get_logger().warn(
+                '启动后暂未收到有效电池数据，自动回充将等待电池数据准备完成。')
         self.was_charging = self.is_charging
         if self.is_charging:
             self.get_logger().info(
@@ -414,7 +474,8 @@ class AutoDockNode(Node):
                 self.was_charging = self.is_charging
 
                 # --- 职责 B：低电量 → 回充 ---
-                if (not self.is_docking and not self.is_charging
+                if (self.have_valid_battery_state
+                        and not self.is_docking and not self.is_charging
                         and self.current_battery < self.battery_threshold):
                     self.handle_low_battery(navigator)
 
