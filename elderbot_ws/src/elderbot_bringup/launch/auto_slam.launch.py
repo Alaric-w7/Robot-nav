@@ -1,11 +1,19 @@
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
+
+from elderbot_bringup.ascamera_pipeline import (
+    create_ascamera_driver_launch,
+    create_ascamera_tf_nodes,
+    create_depth_scan_pipeline,
+    create_imu_node,
+    get_ascamera_launch_arguments,
+)
 
 def generate_launch_description():
     elderbot_base_dir = get_package_share_directory('elderbot_base')
@@ -17,12 +25,11 @@ def generate_launch_description():
     nav2_params_file = os.path.join(elderbot_navigation_dir, 'config', 'navigation.yaml')
     explore_params_file = os.path.join(elderbot_navigation_dir, 'config', 'explore.yaml')
 
-    camera_imu_topic = LaunchConfiguration('camera_imu_topic')
+    imu_topic = LaunchConfiguration('imu_topic')
 
     description_launch_path = PathJoinSubstitution(
         [FindPackageShare('elderbot_description'), 'launch', 'description.launch.py']
     )
-    orbbec_camera_dir = get_package_share_directory('orbbec_camera')
     slam_launch_path = PathJoinSubstitution(
         [FindPackageShare('slam_toolbox'), 'launch', 'online_async_launch.py']
     )
@@ -54,55 +61,17 @@ def generate_launch_description():
         parameters=[{'range_min_filter': 0.20}]
     )
 
-    camera_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(orbbec_camera_dir, 'launch', 'gemini_330_series.launch.py')
-        ),
-        launch_arguments={
-            'enable_point_cloud': 'false',
-            'depth_registration': 'false',
-            'enable_colored_point_cloud': 'false',
-            'enable_left_ir': 'false',
-            'enable_right_ir': 'false',
-            'time_domain': 'system',
-            'log_level': 'info',
-        }.items()
-    )
-
-    depth_to_scan_node = Node(
-        package='depthimage_to_laserscan',
-        executable='depthimage_to_laserscan_node',
-        name='depthimage_to_laserscan',
-        output='screen',
-        parameters=[{
-            'scan_time': 0.033,
-            'range_min': 0.05,
-            'range_max': 5.0,
-            'scan_height': 40,
-            'output_frame': 'camera_link',
-        }],
-        remappings=[
-            ('depth', '/camera/depth/image_raw'),
-            ('depth_camera_info', '/camera/depth/camera_info'),
-            ('scan', '/scan_depth_raw'),
-        ]
-    )
-
-    depth_filter_node = Node(
-        package='elderbot_bringup',
-        executable='depth_scan_filter',
-        name='depth_scan_filter',
-        output='screen'
-    )
-
-
+    camera_launch = create_ascamera_driver_launch()
+    ascamera_tf_nodes = create_ascamera_tf_nodes()
+    depth_scan_nodes = create_depth_scan_pipeline(scan_height=40)
+    imu_node = create_imu_node()
 
     ekf_node = Node(
         package='robot_localization',
         executable='ekf_node',
         name='ekf_filter_node',
         output='screen',
-        parameters=[ekf_params_file, {'imu0': camera_imu_topic}],
+        parameters=[ekf_params_file, {'imu0': imu_topic}],
         remappings=[("odometry/filtered", "/odom")]
     )
 
@@ -146,18 +115,15 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument(
-            'camera_imu_topic',
-            default_value='/camera/gyro_accel/sample',
-            description='IMU topic published by depth camera'
-        ),
+        *get_ascamera_launch_arguments(),
         can_driver_node,
         description_launch,
         rplidar_launch,
         laser_filter_node,
         camera_launch,
-        depth_to_scan_node,
-        depth_filter_node,
+        *ascamera_tf_nodes,
+        *depth_scan_nodes,
+        imu_node,
         ekf_node,
         slam_toolbox_launch,
         nav2_launch,

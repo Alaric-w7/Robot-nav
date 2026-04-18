@@ -1,11 +1,20 @@
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
+
+from elderbot_bringup.ascamera_pipeline import (
+    create_ascamera_driver_launch,
+    create_ascamera_tf_nodes,
+    create_depth_scan_pipeline,
+    create_imu_node,
+    get_ascamera_launch_arguments,
+)
 
 
 def generate_launch_description():
@@ -18,12 +27,15 @@ def generate_launch_description():
     nav2_params_file = os.path.join(elderbot_navigation_dir, 'config', 'navigation.yaml')
 
     map_file = LaunchConfiguration('map')
-    camera_imu_topic = LaunchConfiguration('camera_imu_topic')
+    imu_topic = LaunchConfiguration('imu_topic')
+    initial_pose_x = LaunchConfiguration('initial_pose_x')
+    initial_pose_y = LaunchConfiguration('initial_pose_y')
+    initial_pose_yaw = LaunchConfiguration('initial_pose_yaw')
+    publish_initial_pose = LaunchConfiguration('publish_initial_pose')
 
     description_launch_path = PathJoinSubstitution(
         [FindPackageShare('elderbot_description'), 'launch', 'description.launch.py']
     )
-    orbbec_camera_dir = get_package_share_directory('orbbec_camera')
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
 
     # ================= Nodes =================
@@ -59,54 +71,33 @@ def generate_launch_description():
         }]
     )
 
-    camera_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(orbbec_camera_dir, 'launch', 'gemini_330_series.launch.py')
-        ),
-        launch_arguments={
-            'enable_point_cloud': 'false',
-            'depth_registration': 'false',
-            'enable_colored_point_cloud': 'false',
-            'enable_left_ir': 'false',
-            'enable_right_ir': 'false',
-            'time_domain': 'system',
-            'log_level': 'info',
-        }.items()
-    )
-
-    depth_to_scan_node = Node(
-        package='depthimage_to_laserscan',
-        executable='depthimage_to_laserscan_node',
-        name='depthimage_to_laserscan',
-        output='screen',
-        parameters=[{
-            'scan_time': 0.033,
-            'range_min': 0.05,
-            'range_max': 5.0,
-            'scan_height': 200,
-            'output_frame': 'camera_link',
-        }],
-        remappings=[
-            ('depth', '/camera/depth/image_raw'),
-            ('depth_camera_info', '/camera/depth/camera_info'),
-            ('scan', '/scan_depth_raw'),
-        ]
-    )
-
-    depth_filter_node = Node(
-        package='elderbot_bringup',
-        executable='depth_scan_filter',
-        name='depth_scan_filter',
-        output='screen'
-    )
+    camera_launch = create_ascamera_driver_launch()
+    ascamera_tf_nodes = create_ascamera_tf_nodes()
+    depth_scan_nodes = create_depth_scan_pipeline(scan_height=200)
+    imu_node = create_imu_node()
 
     ekf_node = Node(
         package='robot_localization',
         executable='ekf_node',
         name='ekf_filter_node',
         output='screen',
-        parameters=[ekf_params_file, {'imu0': camera_imu_topic}],
+        parameters=[ekf_params_file, {'imu0': imu_topic}],
         remappings=[("odometry/filtered", "/odom")]
+    )
+
+    initial_pose_node = Node(
+        package='elderbot_bringup',
+        executable='initial_pose_pub',
+        name='initial_pose_pub',
+        output='screen',
+        condition=IfCondition(publish_initial_pose),
+        parameters=[{
+            'x': initial_pose_x,
+            'y': initial_pose_y,
+            'yaw': initial_pose_yaw,
+            'delay_sec': 4.0,
+            'repeat_count': 5,
+        }]
     )
 
     auto_dock_node = Node(
@@ -141,18 +132,36 @@ def generate_launch_description():
             description='Full path to map yaml file'
         ),
         DeclareLaunchArgument(
-            'camera_imu_topic',
-            default_value='/camera/gyro_accel/sample',
-            description='IMU topic published by depth camera'
+            'initial_pose_x',
+            default_value='0.0',
+            description='Initial pose x published to /initialpose.',
         ),
+        DeclareLaunchArgument(
+            'initial_pose_y',
+            default_value='0.0',
+            description='Initial pose y published to /initialpose.',
+        ),
+        DeclareLaunchArgument(
+            'initial_pose_yaw',
+            default_value='0.0',
+            description='Initial pose yaw published to /initialpose.',
+        ),
+        DeclareLaunchArgument(
+            'publish_initial_pose',
+            default_value='false',
+            description='Publish the configured initial pose to /initialpose.',
+        ),
+        *get_ascamera_launch_arguments(),
         can_driver_node,
         description_launch,
         rplidar_launch,
         laser_filter_node,
         camera_launch,
-        depth_to_scan_node,
-        depth_filter_node,
+        *ascamera_tf_nodes,
+        *depth_scan_nodes,
+        imu_node,
         ekf_node,
+        initial_pose_node,
         auto_dock_node,
         nav2_launch
     ])

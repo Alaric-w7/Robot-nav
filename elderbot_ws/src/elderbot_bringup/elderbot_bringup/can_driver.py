@@ -30,6 +30,16 @@ class VCI_CAN_OBJ(Structure):
                 ("RemoteFlag", c_ubyte), ("ExternFlag", c_ubyte), ("DataLen", c_ubyte),
                 ("Data", c_ubyte*8), ("Reserved", c_ubyte*3)]
 
+
+class VCI_CAN_STATUS(Structure):
+    _fields_ = [("ErrInterrupt", c_ubyte), ("regMode", c_ubyte), ("regStatus", c_ubyte),
+                ("regALCapture", c_ubyte), ("regECCapture", c_ubyte), ("regEWLimit", c_ubyte),
+                ("regRECounter", c_ubyte), ("regTECounter", c_ubyte)]
+
+
+class VCI_ERR_INFO(Structure):
+    _fields_ = [("ErrCode", c_uint), ("Passive_ErrData", c_ubyte * 3), ("ArLost_ErrData", c_ubyte)]
+
 class CanInterface:
     def __init__(self):
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -111,15 +121,26 @@ class CanInterface:
 
         pos_1 = None
         pos_2 = None
+        receive_calls = 0
+        receive_packets = 0
+        sample_frames = []
 
         for _ in range(20):
             rx_obj = (VCI_CAN_OBJ * 50)()
             num = self.canDLL.VCI_Receive(VCI_USBCAN2, 0, 0, byref(rx_obj), 50, 0)
+            receive_calls += 1
 
             if num > 0:
+                receive_packets += int(num)
                 for i in range(num):
                     can_id = rx_obj[i].ID
                     data = rx_obj[i].Data
+
+                    if len(sample_frames) < 8:
+                        sample_frames.append(
+                            f"0x{can_id:03X}[{rx_obj[i].DataLen}] "
+                            f"{data[0]:02X} {data[1]:02X} {data[2]:02X} {data[3]:02X}"
+                        )
 
                     if data[1] == 0x63 and data[2] == 0x60:
                         p = data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24)
@@ -135,7 +156,41 @@ class CanInterface:
 
             time.sleep(0.001)
 
+        self.last_motor_query_debug = {
+            'receive_calls': receive_calls,
+            'receive_packets': receive_packets,
+            'sample_frames': sample_frames,
+        }
         return pos_1, pos_2
+
+    def get_motor_diagnostics(self):
+        pending = self.canDLL.VCI_GetReceiveNum(VCI_USBCAN2, 0, 0)
+
+        status = VCI_CAN_STATUS()
+        status_ret = self.canDLL.VCI_ReadCANStatus(VCI_USBCAN2, 0, 0, byref(status))
+
+        err = VCI_ERR_INFO()
+        err_ret = self.canDLL.VCI_ReadErrInfo(VCI_USBCAN2, 0, 0, byref(err))
+
+        return {
+            'pending': int(pending),
+            'last_query': getattr(self, 'last_motor_query_debug', {}),
+            'status_ret': int(status_ret),
+            'status': {
+                'err_interrupt': int(status.ErrInterrupt),
+                'reg_mode': int(status.regMode),
+                'reg_status': int(status.regStatus),
+                'reg_al_capture': int(status.regALCapture),
+                'reg_ec_capture': int(status.regECCapture),
+                'reg_ew_limit': int(status.regEWLimit),
+                'rx_err': int(status.regRECounter),
+                'tx_err': int(status.regTECounter),
+            },
+            'err_ret': int(err_ret),
+            'err_code': int(err.ErrCode),
+            'passive_err_data': [int(v) for v in err.Passive_ErrData],
+            'ar_lost_data': int(err.ArLost_ErrData),
+        }
 
     def _send_query_pos(self, node_id):
         send_id = 0x600 + node_id
@@ -297,8 +352,21 @@ class CanDriverNode(Node):
             if not hasattr(self, 'warn_count'): self.warn_count = 0
             self.warn_count += 1
             if self.warn_count % 40 == 0:
-                self.get_logger().warn(f"Failed to read encoders! Left: {curr_left}, Right: {curr_right}")
+                diag = self.can.get_motor_diagnostics()
+                self.get_logger().warn(
+                    "Failed to read encoders! "
+                    f"Left: {curr_left}, Right: {curr_right}, "
+                    f"pending={diag['pending']}, err_code=0x{diag['err_code']:08X}, "
+                    f"rx_err={diag['status']['rx_err']}, tx_err={diag['status']['tx_err']}, "
+                    f"reg_status=0x{diag['status']['reg_status']:02X}, "
+                    f"err_interrupt=0x{diag['status']['err_interrupt']:02X}, "
+                    f"receive_calls={diag['last_query'].get('receive_calls', 0)}, "
+                    f"receive_packets={diag['last_query'].get('receive_packets', 0)}, "
+                    f"sample_frames={diag['last_query'].get('sample_frames', [])}"
+                )
             return
+
+        self.warn_count = 0
 
         delta_L_ticks = (curr_left - self.last_left_ticks) * self.dir_left
         delta_R_ticks = (curr_right - self.last_right_ticks) * self.dir_right

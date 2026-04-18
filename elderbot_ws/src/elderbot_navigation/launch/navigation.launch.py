@@ -10,13 +10,40 @@ from launch_ros.actions import Node
 
 MAP_NAME = 'my_map'
 
+
+def get_rviz_compat_env():
+    if os.uname().machine != 'aarch64':
+        return {}
+
+    rockchip_dri = '/usr/lib/aarch64-linux-gnu/dri/rockchip_dri.so'
+    mali_egl = '/usr/lib/aarch64-linux-gnu/mali/libEGL.so.1'
+    if not (os.path.exists(rockchip_dri) and os.path.exists(mali_egl)):
+        return {}
+
+    ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
+    mesa_path = '/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu'
+    if ld_library_path:
+        ld_library_path = f'{mesa_path}:{ld_library_path}'
+    else:
+        ld_library_path = mesa_path
+
+    env = {
+        'LD_LIBRARY_PATH': ld_library_path,
+        'QT_OPENGL': 'desktop',
+        'QT_XCB_GL_INTEGRATION': 'xcb_glx',
+        '__GLX_VENDOR_LIBRARY_NAME': 'mesa',
+        'LIBGL_DRI3_DISABLE': '1',
+    }
+    return env
+
+
 def generate_launch_description():
     nav2_launch_path = PathJoinSubstitution(
         [FindPackageShare('nav2_bringup'), 'launch', 'bringup_launch.py']
     )
 
     rviz_config_path = PathJoinSubstitution(
-        [FindPackageShare('elderbot_navigation'), 'rviz', 'elderbot_navigation.rviz']
+        [FindPackageShare('elderbot_navigation'), 'rviz', 'navigation.rviz']
     )
 
     default_map_path = PathJoinSubstitution(
@@ -58,6 +85,7 @@ def generate_launch_description():
             output='screen',
             arguments=['-d', rviz_config_path],
             condition=IfCondition(LaunchConfiguration("rviz")),
-            parameters=[{'use_sim_time': LaunchConfiguration("sim")}]
+            parameters=[{'use_sim_time': LaunchConfiguration("sim")}],
+            additional_env=get_rviz_compat_env()
         )
     ])

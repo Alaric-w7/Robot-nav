@@ -1,11 +1,19 @@
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
+
+from elderbot_bringup.ascamera_pipeline import (
+    create_ascamera_driver_launch,
+    create_ascamera_tf_nodes,
+    create_depth_scan_pipeline,
+    create_imu_node,
+    get_ascamera_launch_arguments,
+)
 
 
 def generate_launch_description():
@@ -15,22 +23,17 @@ def generate_launch_description():
     ekf_params_file = os.path.join(elderbot_base_dir, 'config', 'ekf.yaml')
     slam_config_path = os.path.join(elderbot_navigation_dir, 'config', 'slam.yaml')
 
-    camera_imu_topic = LaunchConfiguration('camera_imu_topic')
+    imu_topic = LaunchConfiguration('imu_topic')
 
     description_launch_path = PathJoinSubstitution(
         [FindPackageShare('elderbot_description'), 'launch', 'description.launch.py']
     )
-    orbbec_camera_dir = get_package_share_directory('orbbec_camera')
     slam_launch_path = PathJoinSubstitution(
         [FindPackageShare('slam_toolbox'), 'launch', 'online_async_launch.py']
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument(
-            'camera_imu_topic',
-            default_value='/camera/gyro_accel/sample',
-            description='IMU topic published by depth camera'
-        ),
+        *get_ascamera_launch_arguments(),
 
         # 1. CAN driver (hardware-specific, must keep)
         Node(
@@ -62,48 +65,10 @@ def generate_launch_description():
             parameters=[{'range_min_filter': 0.20}]
         ),
 
-        # 4. Depth camera
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(orbbec_camera_dir, 'launch', 'gemini_330_series.launch.py')
-            ),
-            launch_arguments={
-                'enable_point_cloud': 'false',
-                'depth_registration': 'false',
-                'enable_colored_point_cloud': 'false',
-                'enable_left_ir': 'false',
-                'enable_right_ir': 'false',
-                'time_domain': 'system',
-                'log_level': 'info',
-            }.items()
-        ),
-
-        # 4.5 Convert depth image to virtual LaserScan for obstacle detection
-        Node(
-            package='depthimage_to_laserscan',
-            executable='depthimage_to_laserscan_node',
-            name='depthimage_to_laserscan',
-            output='screen',
-            parameters=[{
-                'scan_time': 0.033,
-                'range_min': 0.05,
-                'range_max': 5.0,
-                'scan_height': 40,
-                'output_frame': 'camera_link',
-            }],
-            remappings=[
-                ('depth', '/camera/depth/image_raw'),
-                ('depth_camera_info', '/camera/depth/camera_info'),
-                ('scan', '/scan_depth_raw'),
-            ]
-        ),
-
-        Node(
-            package='elderbot_bringup',
-            executable='depth_scan_filter',
-            name='depth_scan_filter',
-            output='screen'
-        ),
+        create_ascamera_driver_launch(),
+        *create_ascamera_tf_nodes(),
+        *create_depth_scan_pipeline(scan_height=40),
+        create_imu_node(),
 
         # 5. EKF sensor fusion (linorobot2 style)
         Node(
@@ -111,7 +76,7 @@ def generate_launch_description():
             executable='ekf_node',
             name='ekf_filter_node',
             output='screen',
-            parameters=[ekf_params_file, {'imu0': camera_imu_topic}],
+            parameters=[ekf_params_file, {'imu0': imu_topic}],
             remappings=[("odometry/filtered", "/odom")]
         ),
 

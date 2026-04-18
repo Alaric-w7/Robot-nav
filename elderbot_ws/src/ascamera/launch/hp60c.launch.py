@@ -63,13 +63,13 @@ def generate_launch_description():
     camera_1_node = create_hp60c_node(
         namespace="ascamera_hp60c",
         usb_bus_no=ParameterValue(LaunchConfiguration("camera_1_usb_bus_no"), value_type=int),
-        usb_path=LaunchConfiguration("camera_1_usb_path"),
+        usb_path=ParameterValue(LaunchConfiguration("camera_1_usb_path"), value_type=str),
     )
 
     camera_2_node = create_hp60c_node(
         namespace="ascamera_hp60c_2",
         usb_bus_no=ParameterValue(LaunchConfiguration("camera_2_usb_bus_no"), value_type=int),
-        usb_path=LaunchConfiguration("camera_2_usb_path"),
+        usb_path=ParameterValue(LaunchConfiguration("camera_2_usb_path"), value_type=str),
         condition=IfCondition(LaunchConfiguration("camera_2_enabled")),
     )
 

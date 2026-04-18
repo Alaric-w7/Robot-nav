@@ -3,15 +3,27 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 import math
 
+
 class DepthScanFilter(Node):
     def __init__(self):
         super().__init__('depth_scan_filter')
+        self.declare_parameter('input_topic', '/scan_depth_raw')
+        self.declare_parameter('output_topic', '/scan_depth')
+        self.declare_parameter('range_max_override', 6.0)
+        self.declare_parameter('clear_padding', 0.1)
+
+        input_topic = self.get_parameter('input_topic').value
+        output_topic = self.get_parameter('output_topic').value
+        self.range_max_override = float(self.get_parameter('range_max_override').value)
+        self.clear_padding = float(self.get_parameter('clear_padding').value)
+
         self.subscription = self.create_subscription(
             LaserScan,
-            '/scan_depth_raw',
+            input_topic,
             self.listener_callback,
             10)
-        self.publisher = self.create_publisher(LaserScan, '/scan_depth', 10)
+        self.publisher = self.create_publisher(LaserScan, output_topic, 10)
+        self.get_logger().info(f'Filtering depth scan: {input_topic} -> {output_topic}')
 
     def listener_callback(self, msg):
         new_msg = LaserScan()
@@ -22,21 +34,21 @@ class DepthScanFilter(Node):
         new_msg.time_increment = msg.time_increment
         new_msg.scan_time = msg.scan_time
         new_msg.range_min = msg.range_min
-        new_msg.range_max = 6.0  # 必须改写系统消息体上限，否则后方雷达库会丢弃大于5.0的点，导致永远无法清除
-        new_msg.intensities = msg.intensities
-        
+        new_msg.range_max = max(msg.range_max, self.range_max_override)
+        new_msg.intensities = list(msg.intensities)
+
+        clear_range = min(msg.range_max + self.clear_padding, new_msg.range_max)
         new_ranges = []
         for r in msg.ranges:
             if math.isnan(r) or math.isinf(r):
-                # 聪明的绝招：设为 5.1 米。
-                # 5.1m > obstacle_max_range (5.0m)，所以绝对不会被划分为障碍物（解决巨大圆圈问题）
-                # 5.1m < raytrace_max_range (6.0m)，所以能够发出 5.1m 的射线去清除范围内的旧障碍物！
-                new_ranges.append(msg.range_max + 0.1)
+                # 用略大于 obstacle_max_range 的射线做清障，但仍保持在消息 range_max 内。
+                new_ranges.append(clear_range)
             else:
                 new_ranges.append(r)
-        
+
         new_msg.ranges = new_ranges
         self.publisher.publish(new_msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
