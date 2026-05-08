@@ -1,0 +1,38 @@
+dyp_e08_pyserial_node:
+  ros__parameters:
+    port: "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    baudrate: 9600
+    bytesize: 8
+    parity: "N"
+    stopbits: 1
+    timeout: 0.0
+    rate: 10.0
+    send_trigger: true
+    trigger_hex: "FF"
+    trigger_period: 0.10
+    reset_input_before_trigger: false
+    flush_trigger_write: false
+    frame_timeout: 0.5
+    stale_timeout: 1.0
+    log_raw_frames: false
+    min_range: 0.02
+    max_range: 4.50
+    field_of_view: 0.26
+    frame_id_1: "ultrasonic_front_left"
+    frame_id_2: "ultrasonic_front"
+    frame_id_3: "ultrasonic_front_right"
+    frame_id_4: "ultrasonic_unused"
+    topic_1: "/ultrasonic/front_left"
+    topic_2: "/ultrasonic/front"
+    topic_3: "/ultrasonic/front_right"
+    topic_4: "/ultrasonic/unused"
+    scan_frame: "base_link"
+    scan_topic: "/scan_ultrasonic"
+    publish_scan: true
+    enabled_channels: [1, 2, 3]
+    angles: [0.5235987756, 0.0, -0.5235987756, 0.0]
+    scan_range_offsets: [0.22, 0.22, 0.22, 0.0]
+    filter_consecutive_hits: 4
+    filter_release_frames: 2
+    filter_tolerance: 0.25
+    ground_reject_windows: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

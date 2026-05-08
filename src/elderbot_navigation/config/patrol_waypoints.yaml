@@ -1,0 +1,36 @@
+patrol_node:
+  ros__parameters:
+    # 到达每个巡逻点后的停留时间(秒)，设置为 0 即不等待
+    wait_duration: 0.0
+
+    # 单次导航超时(秒)，超时后跳过当前点继续下一个
+    navigation_timeout: 120.0
+
+    # 巡逻点列表 (坐标基于 map 坐标系)
+    # 请根据实际地图修改坐标！可在 RViz 中使用 "Publish Point" 获取坐标
+    # yaw 单位为弧度: 0=朝右, 1.57=朝上, 3.14=朝左, -1.57=朝下
+    waypoint_names: ["point_a", "point_b","point_c","point_d"]
+
+    point_a:
+      x: -0.2665
+      y: 0.5702
+      yaw: 2.9130
+
+
+    point_b:
+      x: -10.7364
+      y: 9.4030
+      yaw: 2.4355
+
+
+    point_c:
+      x: -6.5514
+      y: 12.4474
+      yaw: -0.9920
+
+
+    point_d:
+      x: -1.5908
+      y: 5.0843
+      yaw: -1.2619
+

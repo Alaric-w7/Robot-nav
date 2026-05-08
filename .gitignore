@@ -194,6 +194,16 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# ROS 2 / colcon generated workspace artifacts
+/build/
+/install/
+/log/
+
+# Keep vendor runtime libraries required by the ROS packages.
+!/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/
+!/src/OrbbecSDK_ROS2/orbbec_camera/SDK/lib/**
+!/src/elderbot_bringup/elderbot_bringup/libcontrolcan.so
+
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data

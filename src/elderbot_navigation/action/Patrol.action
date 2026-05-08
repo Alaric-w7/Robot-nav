@@ -1,0 +1,27 @@
+# Goal
+# - waypoint_names 为空时，使用 patrol_node 参数中配置的全部巡逻点。
+# - repeat_count <= 0 且 loop_forever == false 时，默认执行 1 轮。
+# - override_* 为 false 时，使用 patrol_node 当前参数值。
+string[] waypoint_names
+int32 repeat_count
+bool loop_forever
+bool override_wait_duration
+float32 wait_duration
+bool override_navigation_timeout
+float32 navigation_timeout
+---
+# Result
+bool success
+int32 rounds_completed
+int32 waypoints_succeeded
+int32 waypoints_failed
+int32 waypoints_timed_out
+string message
+---
+# Feedback
+int32 current_round
+int32 current_waypoint_index
+int32 total_waypoints
+string current_waypoint_name
+string state
+float32 elapsed_time
