@@ -1,0 +1,18 @@
+# Goal
+# - request_source 仅用于日志记录，可留空。
+# - 一旦收到 goal，就会强制执行回充流程，不受 battery_threshold 限制。
+string request_source
+---
+# Result
+bool success
+bool charged
+float32 battery_percent
+float32 charging_current
+string message
+---
+# Feedback
+string stage
+bool is_charging
+float32 battery_percent
+float32 charging_current
+string message
