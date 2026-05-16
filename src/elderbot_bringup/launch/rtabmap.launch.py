@@ -23,6 +23,8 @@ def generate_launch_description():
     fresh_db = LaunchConfiguration('fresh_db')
     localization = LaunchConfiguration('localization')
     initial_pose = LaunchConfiguration('initial_pose')
+    approx_sync_max_interval = LaunchConfiguration('approx_sync_max_interval')
+    neighbor_link_refining = LaunchConfiguration('neighbor_link_refining')
 
     description_launch_path = PathJoinSubstitution(
         [FindPackageShare('elderbot_description'), 'launch', 'description.launch.py']
@@ -39,37 +41,47 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera_imu_topic',
             default_value='/camera/gyro_accel/sample',
-            description='IMU topic published by depth camera'
+            description='深度相机发布的 IMU 话题'
         ),
         DeclareLaunchArgument(
             'database_path',
             default_value=os.path.join(home_dir, 'maps', 'elderbot_rtabmap.db'),
-            description='RTAB-Map database path'
+            description='RTAB-Map 数据库文件路径'
         ),
         DeclareLaunchArgument(
             'rviz',
             default_value='false',
-            description='Whether to launch RViz with the SLAM config'
+            description='是否使用 SLAM 配置启动 RViz'
         ),
         DeclareLaunchArgument(
             'rtabmap_viz',
             default_value='false',
-            description='Whether to launch the RTAB-Map GUI'
+            description='是否启动 RTAB-Map 图形界面'
         ),
         DeclareLaunchArgument(
             'fresh_db',
             default_value='true',
-            description='Delete the RTAB-Map database on start'
+            description='启动时是否删除已有 RTAB-Map 数据库'
         ),
         DeclareLaunchArgument(
             'localization',
             default_value='false',
-            description='Launch RTAB-Map in localization mode'
+            description='是否以定位模式启动 RTAB-Map'
         ),
         DeclareLaunchArgument(
             'initial_pose',
             default_value='',
-            description='Initial pose in localization mode: "x y z roll pitch yaw"'
+            description='定位模式下的初始位姿，格式为："x y z roll pitch yaw"'
+        ),
+        DeclareLaunchArgument(
+            'approx_sync_max_interval',
+            default_value='0.01',
+            description='RTAB-Map 输入近似同步允许的最大时间差，单位为秒'
+        ),
+        DeclareLaunchArgument(
+            'neighbor_link_refining',
+            default_value='true',
+            description='是否使用配准细化 RTAB-Map 相邻关键帧约束'
         ),
 
         Node(
@@ -174,16 +186,15 @@ def generate_launch_description():
                 'approx_sync': 'true',
                 # 单个订阅话题的缓存队列长度。数值越大越能吸收短时间消息堆积，
                 # 但也会增加内存占用和潜在延迟。
-                'topic_queue_size': '60',
+                'topic_queue_size': '120',
                 # 同步器内部队列长度。影响近似同步在多个话题之间寻找匹配消息的范围，
                 # 过小可能同步失败，过大可能增加处理延迟。
-                'sync_queue_size': '30',
-                # ROS 2 QoS 档位。1 通常对应传感器数据常用的 best effort 策略，
-                # 可减少实时传感器流因可靠传输等待导致的阻塞。
+                'sync_queue_size': '100',
+                # ROS 2 QoS 档位。rtabmap_launch 中 1=Reliable, 2=Best Effort。
                 'qos': '1',
-                # 近似同步允许的最大时间差，单位为秒。0.1 表示最多接受 100 ms 内的消息匹配，
+                # 近似同步允许的最大时间差，单位为秒。0.03 表示最多接受 30 ms 内的消息匹配，
                 # 需要结合相机、雷达和里程计发布时间戳质量调整。
-                'approx_sync_max_interval': '0.1',
+                'approx_sync_max_interval': approx_sync_max_interval,
                 # 是否启动 RTAB-Map 内置视觉里程计。这里关闭，因为位姿来源由底盘里程计、
                 # IMU 和 robot_localization 融合后的 /odom 提供。
                 'visual_odometry': 'false',
@@ -198,7 +209,7 @@ def generate_launch_description():
                 'publish_tf_odom': 'false',
                 # 等待 TF 可用的最长时间，单位为秒。传感器消息到达时，
                 # RTAB-Map 会在该时间内等待所需坐标变换。
-                'wait_for_transform': '0.2',
+                'wait_for_transform': '0.5',
                 # 是否启动 RTAB-Map 自带的可视化界面。由 launch 参数 rtabmap_viz 控制，
                 # 便于按需查看图优化、回环和数据库状态。
                 'rtabmap_viz': rtabmap_viz,
@@ -214,15 +225,44 @@ def generate_launch_description():
                     # Reg/Force3DoF：强制使用 x、y、yaw 的二维位姿优化，
                     # 忽略 z、roll、pitch 漂移，适合室内平面移动机器人。
                     '--Reg/Force3DoF true '
-                    # RGBD/NeighborLinkRefining：细化相邻关键帧之间的约束，
-                    # 能提升局部轨迹连续性，但会增加少量计算开销。
-                    '--RGBD/NeighborLinkRefining true '
+                    # RGBD/NeighborLinkRefining：用配准细化相邻关键帧约束。
+                    # 二维激光建图时默认开启，可减少轮速里程计转弯误差造成的墙角重影。
+                    '--RGBD/NeighborLinkRefining ', neighbor_link_refining, ' ',
+                    # RGBD/ProximityBySpace：在空间上接近的历史节点之间做局部回环检测。
+                    # 这可以让经过同一墙角时更早闭合局部约束，降低多边重影。
+                    '--RGBD/ProximityBySpace true '
+                    # RGBD/ProximityByTime：关闭短时记忆里的时间邻近检测，避免刚走过的相似局部结构重复加约束。
+                    '--RGBD/ProximityByTime false '
+                    # RGBD/ProximityPathMaxNeighbors：允许合并邻近路径上的多个 scan 做一对多匹配，
+                    # 对墙面、走廊这类几何重复场景更稳。
+                    '--RGBD/ProximityPathMaxNeighbors 10 '
+                    # RGBD/OptimizeMaxError：拒绝会造成过大图优化误差的回环/邻近约束。
+                    '--RGBD/OptimizeMaxError 3 '
+                    # Mem/STMSize：增大短时记忆，减少刚经过区域被过早重复建成多个局部节点。
+                    '--Mem/STMSize 30 '
+                    # Mem/NotLinkedNodesKept：丢弃没有成功建立约束的节点，减少坏 scan 留在地图中。
+                    '--Mem/NotLinkedNodesKept false '
+                    # Icp/*：二维激光点到点匹配参数。阈值偏保守，宁愿不接受坏约束，也不要把墙角拉成多边。
+                    '--Icp/PointToPlane false '
+                    '--Icp/VoxelSize 0.05 '
+                    '--Icp/MaxCorrespondenceDistance 0.15 '
+                    '--Icp/CorrespondenceRatio 0.20 '
+                    '--Icp/MaxTranslation 0.30 '
+                    '--Icp/MaxRotation 0.35 '
+                    '--Icp/RangeMin 0.20 '
+                    '--Icp/RangeMax 8.0 '
+                    # Optimizer/GravitySigma：已强制 3DoF，关闭重力约束，避免 IMU 姿态约束影响平面图优化。
+                    '--Optimizer/GravitySigma 0 '
                     # Grid/Sensor：选择占据栅格地图的数据来源。0 表示优先使用激光雷达 Scan，
                     # 相比仅用深度相机，二维导航地图通常更干净稳定。
                     '--Grid/Sensor 0 '
+                    # Grid/3D：只生成二维占据栅格，避免 3D 投影/OctoMap 相关开销影响实时性。
+                    '--Grid/3D false '
                     # Grid/RangeMin：生成栅格地图时忽略小于该距离的测距点，单位为米，
                     # 用于过滤车体附近、雷达盲区或深度噪声造成的障碍。
                     '--Grid/RangeMin 0.20 '
+                    # Grid/RangeMax：限制过远、较易抖动的激光点进入占据栅格。
+                    '--Grid/RangeMax 8.0 '
                     # Grid/RayTracing：启用射线追踪清除自由空间。
                     # 雷达从原点到命中点之间的区域会被标记为可通行。
                     '--Grid/RayTracing true',
